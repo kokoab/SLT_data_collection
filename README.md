@@ -154,7 +154,28 @@ Zip the entire `dist/SLT_DataCollect/` folder and share it. Recipients just unzi
 
 Recorded videos are saved to a `data/raw_videos/` folder next to the executable.
 
-> **Note:** PyInstaller builds for the OS you're running on. To create a Windows `.exe`, build on Windows. For a macOS app, build on macOS.
+> **Note:** PyInstaller builds for the OS you're running on. To create a Windows `.exe`, build on Windows. For a macOS app, build on macOS. Or use the GitHub Actions workflow below.
+
+### Automated Builds with GitHub Actions
+
+The repo includes a workflow (`.github/workflows/build.yml`) that builds both Windows and macOS executables in the cloud.
+
+**Option A — Manual trigger (any time):**
+
+1. Go to your repo on GitHub: `https://github.com/kokoab/SLT_data_collection`
+2. Click the **Actions** tab
+3. Select **Build Executables** from the left sidebar
+4. Click **Run workflow** → **Run workflow**
+5. When the run finishes, click it and download the `.zip` artifacts
+
+**Option B — Tag a release (automatic):**
+
+```bash
+git tag v1.0
+git push origin v1.0
+```
+
+This triggers the workflow and automatically creates a GitHub Release with the Windows and macOS zips attached. Share the release link with your users — they just download, unzip, and run.
 
 ## Troubleshooting
 

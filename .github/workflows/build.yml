@@ -1,0 +1,71 @@
+name: Build Executables
+
+on:
+  # Trigger manually from the Actions tab
+  workflow_dispatch:
+  # Trigger on version tags (e.g. v1.0, v2.3.1)
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: SLT_DataCollect-Windows
+          - os: macos-latest
+            artifact: SLT_DataCollect-macOS
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_collect.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: python build_app.py
+
+      - name: Zip build output
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            7z a ../${{ matrix.artifact }}.zip SLT_DataCollect/
+          else
+            zip -r ../${{ matrix.artifact }}.zip SLT_DataCollect/
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            SLT_DataCollect-Windows/SLT_DataCollect-Windows.zip
+            SLT_DataCollect-macOS/SLT_DataCollect-macOS.zip
+          generate_release_notes: true
