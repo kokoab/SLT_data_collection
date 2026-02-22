@@ -203,13 +203,6 @@ def main():
         elif state == STATE_REVIEW:
             if review_frame is not None:
                 frame = review_frame.copy()
-                # Re-draw landmarks on the frozen frame for consistency
-                rgb_r = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                res_r = hands.process(rgb_r)
-                if res_r.multi_hand_landmarks:
-                    for hand_lms in res_r.multi_hand_landmarks:
-                        mp_draw.draw_landmarks(frame, hand_lms,
-                                               mp_hands.HAND_CONNECTIONS)
 
             n_frames = len(raw_frames)
             dur = n_frames / cam_fps if cam_fps > 0 else 0
