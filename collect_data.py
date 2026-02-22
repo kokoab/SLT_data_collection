@@ -9,6 +9,7 @@ State machine: InputLabel -> InputCount -> Idle -> Recording -> Review
                (loops back to InputLabel after all clips for a label)
 """
 
+import sys
 import cv2
 import time
 import mediapipe as mp
@@ -18,7 +19,13 @@ from pathlib import Path
 
 # ── Constants ─────────────────────────────────────────────────
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "raw_videos"
+def _app_root() -> Path:
+    """Return the application root, works both as script and PyInstaller exe."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+DATA_DIR = _app_root() / "data" / "raw_videos"
 
 FONT      = cv2.FONT_HERSHEY_SIMPLEX
 FONT_S    = cv2.FONT_HERSHEY_PLAIN

@@ -19,6 +19,7 @@ SLT-data-collection/
 │       │   └── ...
 │       └── <label>/
 │           └── <label>_N.mp4
+├── build_app.py               # Build standalone executable (no Python needed for end users)
 ├── requirements_collect.txt   # Python dependencies
 ├── setup_collect.bat          # One-click setup for Windows
 ├── setup_collect.sh           # One-click setup for macOS / Linux
@@ -116,6 +117,44 @@ After saving all clips for a label, the tool loops back to step 1 for the next l
 | `opencv-python`| Camera capture, video writing, UI|
 | `mediapipe`    | Real-time hand landmark detection|
 | `numpy`        | Frame buffer management          |
+
+## Building a Standalone App (No Python Required for Users)
+
+You can package the tool into a single folder that anyone can run without installing Python or dependencies.
+
+### Prerequisites (build machine only)
+
+- Python 3.10+ with pip
+- The dependencies from `requirements_collect.txt` installed
+
+### Build
+
+```bash
+pip install pyinstaller
+python build_app.py
+```
+
+This creates a `dist/SLT_DataCollect/` folder containing the executable and all bundled libraries.
+
+To rebuild from scratch:
+
+```bash
+python build_app.py --clean
+```
+
+### Distribute
+
+Zip the entire `dist/SLT_DataCollect/` folder and share it. Recipients just unzip and run:
+
+| OS      | Command                                     |
+|---------|---------------------------------------------|
+| Windows | `SLT_DataCollect\SLT_DataCollect.exe`       |
+| macOS   | `./SLT_DataCollect/SLT_DataCollect`         |
+| Linux   | `./SLT_DataCollect/SLT_DataCollect`         |
+
+Recorded videos are saved to a `data/raw_videos/` folder next to the executable.
+
+> **Note:** PyInstaller builds for the OS you're running on. To create a Windows `.exe`, build on Windows. For a macOS app, build on macOS.
 
 ## Troubleshooting
 
