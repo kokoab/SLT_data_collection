@@ -1,10 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM ── Always run from the folder this .bat lives in ───────
+cd /d "%~dp0"
+
 echo ============================================
 echo  SLT - Data Collection Setup (Windows)
 echo  One-click: Python + dependencies + run
 echo ============================================
+echo.
+echo  Working directory: %cd%
 echo.
 
 set PYTHON_VERSION=3.10.11
@@ -48,8 +53,7 @@ if "!PYTHON_CMD!"=="" (
         echo [ERROR] Download failed. Check your internet connection.
         echo         You can also install Python manually from:
         echo         https://www.python.org/downloads/
-        pause
-        exit /b 1
+        goto :fail
     )
 
     echo [INFO] Installing Python %PYTHON_VERSION% (per-user, no admin needed)...
@@ -59,8 +63,7 @@ if "!PYTHON_CMD!"=="" (
     if errorlevel 1 (
         echo [ERROR] Python installation failed.
         del /f "%INSTALLER_FILE%" 2>nul
-        pause
-        exit /b 1
+        goto :fail
     )
 
     del /f "%INSTALLER_FILE%" 2>nul
@@ -71,9 +74,8 @@ if "!PYTHON_CMD!"=="" (
         set "PYTHON_CMD=%DEFAULT_INSTALL%\python.exe"
     ) else (
         echo [ERROR] Could not locate Python after installation.
-        echo         Please close this window, reopen, and run setup_collect.bat again.
-        pause
-        exit /b 1
+        echo         Close this window, reopen, and run setup_collect.bat again.
+        goto :fail
     )
 )
 
@@ -89,8 +91,7 @@ if not exist "venv_collect" (
     "!PYTHON_CMD!" -m venv venv_collect
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment.
-        pause
-        exit /b 1
+        goto :fail
     )
     echo [OK] Virtual environment created.
 ) else (
@@ -107,8 +108,7 @@ python -m pip install --upgrade pip --quiet
 pip install -r requirements_collect.txt
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies.
-    pause
-    exit /b 1
+    goto :fail
 )
 echo [OK] All dependencies installed.
 
@@ -131,4 +131,15 @@ python src\collect_data.py
 
 echo.
 echo Done. Videos saved to data\raw_videos\
+echo.
 pause
+exit /b 0
+
+:fail
+echo.
+echo ============================================
+echo  Setup failed. See the error above.
+echo ============================================
+echo.
+pause
+exit /b 1
