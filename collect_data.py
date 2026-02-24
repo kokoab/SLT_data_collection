@@ -10,6 +10,7 @@ State machine: InputLabel -> InputCount -> Idle -> Recording -> Review
 """
 
 import sys
+import uuid
 import cv2
 import time
 import mediapipe as mp
@@ -235,18 +236,6 @@ def main():
                     saved_files.clear()
                     label_dir = DATA_DIR / label
                     label_dir.mkdir(parents=True, exist_ok=True)
-                    existing = sorted(label_dir.glob(f"{label}_*.mp4"))
-                    if existing:
-                        last_num = max(
-                            int(p.stem.split("_")[-1])
-                            for p in existing
-                            if p.stem.split("_")[-1].isdigit()
-                        )
-                        saved_count = last_num
-                        saved_files.extend(existing)
-                        print(f"  Found {len(existing)} existing clips "
-                              f"for '{label}', continuing from "
-                              f"{label}_{saved_count + 1}")
                     state = STATE_INPUT_COUNT
                 elif state == STATE_INPUT_COUNT and text_buf.strip().isdigit():
                     target_count = int(text_buf.strip())
@@ -274,7 +263,7 @@ def main():
                 raw_frames.clear()
                 rec_start = time.time()
                 state = STATE_RECORDING
-                print(f"  REC started for {label}_{saved_count + 1}")
+                print(f"  REC started (clip {saved_count + 1}/{target_count})")
 
             elif key in (ord('u'), ord('U')):
                 if saved_files:
@@ -302,7 +291,7 @@ def main():
                 label_dir = DATA_DIR / label
                 label_dir.mkdir(parents=True, exist_ok=True)
                 saved_count += 1
-                fname = label_dir / f"{label}_{saved_count}.mp4"
+                fname = label_dir / f"{uuid.uuid4().hex[:8]}.mp4"
 
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 writer = cv2.VideoWriter(
