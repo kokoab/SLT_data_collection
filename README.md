@@ -100,7 +100,7 @@ After saving all clips for a label, the tool loops back to step 1 for the next l
 | `O`         | Save the recorded clip                    |
 | `U`         | Undo (delete) the last saved clip         |
 | `Backspace` | Delete last character during text input   |
-| `Q`         | Quit                                      |
+| `Ctrl+Q`    | Quit                                      |
 
 ## Output Format
 

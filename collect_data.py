@@ -11,11 +11,19 @@ State machine: InputLabel -> InputCount -> Idle -> Recording -> Review
 
 import sys
 import uuid
+import urllib.request
 import cv2
 import time
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 import numpy as np
 from pathlib import Path
+
+MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/"
+    "hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+)
 
 
 # ── Constants ─────────────────────────────────────────────────
@@ -25,6 +33,16 @@ def _app_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
+
+
+def _model_path() -> Path:
+    """Path to hand_landmarker.task; download if missing (MediaPipe 0.10.30+)."""
+    path = _app_root() / "hand_landmarker.task"
+    if not path.exists():
+        print("Downloading hand_landmarker model (one-time)...")
+        urllib.request.urlretrieve(MODEL_URL, path)
+    return path
+
 
 DATA_DIR = _app_root() / "data" / "raw_videos"
 
@@ -37,6 +55,11 @@ STATE_INPUT_COUNT = 1
 STATE_IDLE        = 2
 STATE_RECORDING   = 3
 STATE_REVIEW      = 4
+
+# Only count a hand as "present" if MediaPipe is this confident about
+# which hand it is. Low-confidence hits are common during fast motion
+# and partial occlusion — they pollute the retake quality stats.
+MIN_HANDEDNESS_CONF = 0.6
 
 
 # ── Drawing helpers ───────────────────────────────────────────
@@ -106,6 +129,34 @@ def draw_rec_indicator(frame, elapsed_sec):
                 (0, 0, 255), 2)
 
 
+# ── Hand quality helpers ──────────────────────────────────────
+
+def count_confident_hands(res) -> int:
+    """
+    Count only hands where MediaPipe's handedness confidence >= MIN_HANDEDNESS_CONF.
+
+    During fast motion or partial occlusion MediaPipe sometimes returns a low-
+    confidence detection that is really noise. Counting those as valid hands
+    causes the retake-suggestion logic to under-fire (it sees "hands present"
+    when the signer's hands were actually invisible to the model).
+
+    The skeleton overlay still draws every detection so the user gets visual
+    feedback; only the quality counter is gated here.
+
+    Trade-off: a genuine but uncertain hand is not counted → retake suggestion
+    may fire slightly more often for ambiguous clips. This is the safer direction
+    for data quality.
+    """
+    if not res.hand_landmarks or not res.handedness:
+        return 0
+    count = 0
+    for handedness_list in res.handedness:
+        # handedness_list is a list of Category objects; take the top score
+        if handedness_list and handedness_list[0].score >= MIN_HANDEDNESS_CONF:
+            count += 1
+    return count
+
+
 # ── Main ──────────────────────────────────────────────────────
 
 def main():
@@ -121,14 +172,17 @@ def main():
     cam_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"Camera: {cam_w}x{cam_h} @ {cam_fps:.0f} fps")
 
-    mp_hands = mp.solutions.hands
-    mp_draw  = mp.solutions.drawing_utils
-    hands = mp_hands.Hands(
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5,
-        model_complexity=1,
-        max_num_hands=2,
+    base_options = python.BaseOptions(model_asset_path=str(_model_path()))
+    options = vision.HandLandmarkerOptions(
+        base_options=base_options,
+        num_hands=2,
+        min_hand_detection_confidence=0.4,
+        min_tracking_confidence=0.3,
+        running_mode=vision.RunningMode.VIDEO,
     )
+    hands = vision.HandLandmarker.create_from_options(options)
+    mp_draw = vision.drawing_utils
+    mp_hands = vision.HandLandmarksConnections
 
     state        = STATE_INPUT_LABEL
     text_buf     = ""
@@ -138,11 +192,13 @@ def main():
     saved_files: list[Path] = []
 
     raw_frames: list[np.ndarray] = []
+    rec_tracking: list[int] = []  # confident hands detected per frame
     rec_start  = 0.0
     review_frame: np.ndarray | None = None
+    frame_index = 0
 
     print(f"Output directory: {DATA_DIR}")
-    print("Type in the OpenCV window. Press Q at any time to quit.\n")
+    print("Type in the OpenCV window. Ctrl+Q to quit.\n")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -153,11 +209,22 @@ def main():
 
         # MediaPipe overlay (visual guide only)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        res = hands.process(rgb)
-        if res.multi_hand_landmarks:
-            for hand_lms in res.multi_hand_landmarks:
-                mp_draw.draw_landmarks(frame, hand_lms,
-                                       mp_hands.HAND_CONNECTIONS)
+        rgb = np.ascontiguousarray(rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        timestamp_ms = int(frame_index * 1000 / cam_fps)
+        res = hands.detect_for_video(mp_image, timestamp_ms)
+        frame_index += 1
+
+        # Draw ALL detected landmarks for visual feedback (unaffected by gate)
+        if res.hand_landmarks:
+            for hand_lms in res.hand_landmarks:
+                mp_draw.draw_landmarks(
+                    frame,
+                    hand_lms,
+                    mp_hands.HAND_CONNECTIONS,
+                    vision.drawing_styles.get_default_hand_landmarks_style(),
+                    vision.drawing_styles.get_default_hand_connections_style(),
+                )
 
         # Cursor blink (~2 Hz)
         cursor_on = int(time.time() * 2) % 2 == 0
@@ -167,7 +234,7 @@ def main():
             draw_input_prompt(frame, "Label name:", text_buf, cursor_on)
             draw_controls(frame, [
                 "Type label name, then press ENTER to confirm",
-                "Q = quit",
+                "Ctrl+Q = quit",
             ])
 
         # ── STATE: Input Count ────────────────────────────────
@@ -176,7 +243,7 @@ def main():
                               text_buf, cursor_on)
             draw_controls(frame, [
                 "Type number of videos, then press ENTER",
-                "Q = quit",
+                "Ctrl+Q = quit",
             ])
 
         # ── STATE: Idle ───────────────────────────────────────
@@ -186,18 +253,25 @@ def main():
             draw_controls(frame, [
                 "SPACE = start recording",
                 "U = undo last clip",
-                "Q = quit",
+                "Keep both hands in frame, facing camera",
+                "Sign at moderate speed, avoid overlapping hands",
+                "Ctrl+Q = quit",
             ])
 
         # ── STATE: Recording ─────────────────────────────────
         elif state == STATE_RECORDING:
             raw_frames.append(raw)
+            # Use confident-hand count for quality tracking (not raw detection count)
+            confident_hands = count_confident_hands(res)
+            rec_tracking.append(confident_hands)
             elapsed = time.time() - rec_start
             draw_top_bar(frame, label, saved_count, target_count,
                          "RECORDING", (0, 0, 255))
             draw_rec_indicator(frame, elapsed)
             draw_controls(frame, [
                 "SPACE = stop recording",
+                "Sign at moderate speed, keep hands visible",
+                "Ctrl+Q = quit",
             ])
 
         # ── STATE: Review ─────────────────────────────────────
@@ -212,10 +286,24 @@ def main():
                                color=(0, 200, 255))
             draw_text_centered(frame, f"{n_frames} frames | {dur:.1f}s", 55,
                                scale=0.5, color=(180, 180, 180))
+
+            suggest_retake = False
+            if rec_tracking and n_frames >= 10:
+                frac_no_hands = rec_tracking.count(0) / len(rec_tracking)
+                frac_one_hand = rec_tracking.count(1) / len(rec_tracking)
+                if frac_no_hands > 0.25 or (frac_no_hands + frac_one_hand) > 0.5:
+                    suggest_retake = True
+
+            if suggest_retake:
+                fh = frame.shape[0]
+                draw_dark_bar(frame, fh // 2 - 40, 50, alpha=0.9)
+                draw_text_centered(frame, "Tracking was weak - consider re-recording",
+                                   fh // 2 - 12, scale=0.55, color=(0, 200, 255))
+
             draw_controls(frame, [
                 "O = save clip",
                 "SPACE = discard & re-record",
-                "Q = quit",
+                "Ctrl+Q = quit",
             ])
 
         cv2.imshow(WIN_NAME, frame)
@@ -223,7 +311,7 @@ def main():
         # ── Key handling ──────────────────────────────────────
         key = cv2.waitKey(1) & 0xFF
 
-        if key == ord('q') or key == ord('Q'):
+        if key == 17:  # Ctrl+Q
             break
 
         # --- Text input states ---
@@ -261,6 +349,7 @@ def main():
         elif state == STATE_IDLE:
             if key == ord(' '):
                 raw_frames.clear()
+                rec_tracking.clear()
                 rec_start = time.time()
                 state = STATE_RECORDING
                 print(f"  REC started (clip {saved_count + 1}/{target_count})")
@@ -315,6 +404,7 @@ def main():
 
             elif key == ord(' '):
                 raw_frames.clear()
+                rec_tracking.clear()
                 review_frame = None
                 state = STATE_IDLE
                 print("  Clip discarded")
